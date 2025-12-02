@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>六脈神劍練功室</title>
+    <!-- MediaPipe 必要庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        /* 整體風格設定 */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            font-family: 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
+        }
+
+        .input_video { display: none; }
+
+        /* Canvas 佔滿全螢幕並鏡像 */
+        .output_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); 
+        }
+
+        /* 遊戲介面圖層 - 極簡化 */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 25px;
+            border-radius: 30px;
+            border: 1px solid #00aaff;
+            box-shadow: 0 0 15px rgba(0, 170, 255, 0.3);
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        /* 首頁覆蓋層 */
+        #game-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            color: white;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* 首頁標題 */
+        #game-title {
+            font-size: 3.5rem;
+            margin-bottom: 15px;
+            background: linear-gradient(to bottom, #ffffff, #00aaff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(0, 170, 255, 0.8);
+            font-weight: bold;
+            letter-spacing: 5px;
+            text-align: center;
+        }
+
+        /* 封面繪圖容器 */
+        #cover-canvas-container {
+            width: 100%;
+            max-width: 400px;
+            height: 240px;
+            border-radius: 15px;
+            box-shadow: 0 0 50px rgba(0, 170, 255, 0.4);
+            margin-bottom: 20px;
+            border: 2px solid #00aaff;
+            background: #111;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #cover-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 首頁說明區塊 */
+        #instructions-box {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px 25px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid rgba(0, 170, 255, 0.3);
+        }
+
+        .instruction-title {
+            color: #00aaff;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            text-align: center;
+            border-bottom: 1px solid rgba(0, 170, 255, 0.3);
+            padding-bottom: 5px;
+        }
+
+        .legend-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .legend { display: flex; align-items: center; font-size: 0.9rem; color: #ddd; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; display: inline-block; box-shadow: 0 0 5px currentColor;}
+        
+        .tip-text {
+            color: #fff;
+            text-align: center;
+            font-size: 1rem;
+            line-height: 1.4;
+        }
+        .tip-highlight { color: #ffd700; font-weight: bold; }
+
+        /* 按鈕樣式 */
+        #start-btn, #restart-btn {
+            padding: 12px 40px;
+            font-size: 1.5rem;
+            background: linear-gradient(45deg, #00aaff, #0066ff);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 0 30px #00aaff;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+        
+        #start-btn:hover, #restart-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 40px #00aaff, 0 0 20px white;
+        }
+
+        #restart-btn {
+            background: linear-gradient(45deg, #ff0055, #ff6600);
+            box-shadow: 0 0 30px #ff0055;
+            display: none;
+            pointer-events: auto;
+            margin-top: 30px;
+        }
+
+        /* 勝利文字 */
+        #victory-text {
+            font-size: 5rem;
+            background: linear-gradient(to bottom, #ffd700, #ff8c00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 50px rgba(255, 215, 0, 0.8);
+            font-weight: bold;
+            display: none;
+            pointer-events: none;
+            margin-bottom: 20px;
+        }
+        
+        /* 冷卻指示器 */
+        #cooldown-indicator {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: cyan;
+            font-size: 1.2rem;
+            text-shadow: 0 0 10px cyan;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+
+        /* RWD 調整 */
+        @media (max-width: 600px) {
+            #game-title { font-size: 2.5rem; }
+            #instructions-box { padding: 10px; }
+            .legend { font-size: 0.8rem; }
+            #cover-canvas-container { height: 180px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 首頁與遊戲結束畫面 -->
+    <div id="game-overlay">
+        <div id="game-title">六脈神劍練功室</div>
+        
+        <!-- 封面改用 Canvas 繪製 -->
+        <div id="cover-canvas-container">
+            <canvas id="cover-canvas"></canvas>
+        </div>
+
+        <!-- 說明區塊 (移至首頁) -->
+        <div id="instructions-box">
+            <div class="instruction-title">劍譜心法</div>
+            <div class="legend-grid">
+                <div class="legend" style="color:gold;"><span class="dot" style="background:gold;"></span>拇指：少商劍</div>
+                <div class="legend" style="color:#00ff00;"><span class="dot" style="background:#00ff00;"></span>食指：商陽劍</div>
+                <div class="legend" style="color:#ff3333;"><span class="dot" style="background:#ff3333;"></span>中指：中衝劍</div>
+                <div class="legend" style="color:orange;"><span class="dot" style="background:orange;"></span>無名指：關衝劍</div>
+                <div class="legend" style="color:#00ffff;"><span class="dot" style="background:#00ffff;"></span>小指：少澤劍</div>
+            </div>
+            <div class="tip-text">
+                <span class="tip-highlight">訣竅：</span>彎曲手指蓄力，瞬間伸直即可發射劍氣！<br>
+                <span style="color:#ff5555; font-size:0.9rem;">(魔王需要 3 次劍氣攻擊才能擊敗)</span><br>
+                <span style="color:#aaa; font-size:0.8rem;">(手機遊玩請確認關閉靜音鍵以開啟音效)</span>
+            </div>
+        </div>
+
+        <button id="start-btn" onclick="startSystem()">開始練功 (啟動音效)</button>
+        
+        <div id="victory-text">神功大成</div>
+        <button id="restart-btn" onclick="restartGame()">再來一局</button>
+    </div>
+    
+    <div id="cooldown-indicator">劍氣運行中...</div>
+
+    <!-- 遊戲中 UI (極簡化) -->
+    <div id="ui-layer" style="display:none;">
+        <span style="font-size: 1.2rem; color: #00aaff; font-weight: bold; margin-right: 10px;">剩餘敵方</span>
+        <span id="enemy-count" style="font-size:2rem; color:red; font-weight:bold; text-shadow: 0 0 10px red;">10</span>
+    </div>
+
+    <video class="input_video"></video>
+    <canvas class="output_canvas"></canvas>
+
+    <script>
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const canvasElement = document.getElementsByClassName('output_canvas')[0];
+        const canvasCtx = canvasElement.getContext('2d', { alpha: false });
+        const uiLayer = document.getElementById('ui-layer');
+        const gameOverlay = document.getElementById('game-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const victoryText = document.getElementById('victory-text');
+        const enemyCountSpan = document.getElementById('enemy-count');
+        const gameTitle = document.getElementById('game-title');
+        const coverCanvas = document.getElementById('cover-canvas');
+        const cooldownIndicator = document.getElementById('cooldown-indicator');
+        const coverContainer = document.getElementById('cover-canvas-container');
+        const instructionsBox = document.getElementById('instructions-box');
+
+        let isRunning = false;
+        let audioCtx;
+        let gameWon = false;
+
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+            drawCoverArt();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        
+        // --- 繪製首頁幾何段譽 ---
+        function drawCoverArt() {
+            const width = coverContainer.clientWidth;
+            const height = coverContainer.clientHeight;
+            if (width === 0 || height === 0) return;
+            
+            coverCanvas.width = width;
+            coverCanvas.height = height;
+            
+            const ctx = coverCanvas.getContext('2d');
+            
+            // 背景
+            const bgGrad = ctx.createLinearGradient(0, 0, width, height);
+            bgGrad.addColorStop(0, '#eef'); 
+            bgGrad.addColorStop(1, '#dde');
+            ctx.fillStyle = bgGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.fillStyle = 'rgba(0,0,0,0.1)';
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+            ctx.lineTo(width * 0.3, height * 0.4);
+            ctx.lineTo(width * 0.6, height);
+            ctx.fill();
+
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.beginPath();
+            ctx.moveTo(width * 0.4, height);
+            ctx.lineTo(width * 0.8, height * 0.5);
+            ctx.lineTo(width, height);
+            ctx.fill();
+
+            // 主角段譽
+            const centerX = width * 0.3;
+            const centerY = height * 0.6;
+            const scale = height * 0.003; 
+
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.scale(scale, scale);
+
+            // 頭髮
+            ctx.fillStyle = '#222';
+            ctx.beginPath();
+            ctx.arc(0, -60, 25, 0, Math.PI*2); 
+            ctx.fill();
+            ctx.fillRect(-10, -90, 20, 30); 
+
+            // 臉
+            ctx.fillStyle = '#ffe0bd';
+            ctx.beginPath();
+            ctx.arc(0, -55, 22, 0, Math.PI*2);
+            ctx.fill();
+
+            // 身體
+            ctx.fillStyle = '#e0ffff'; 
+            ctx.beginPath();
+            ctx.moveTo(-25, -35); 
+            ctx.lineTo(25, -35);
+            ctx.lineTo(60, 50); 
+            ctx.lineTo(40, 80);
+            ctx.lineTo(-40, 100);
+            ctx.lineTo(-60, 50);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 衣領
+            ctx.strokeStyle = '#00aaff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(-20, -35);
+            ctx.lineTo(0, 0);
+            ctx.lineTo(20, -35);
+            ctx.stroke();
+
+            // 手臂
+            ctx.fillStyle = '#e0ffff';
+            ctx.beginPath();
+            ctx.moveTo(20, -30);
+            ctx.lineTo(100, -40); 
+            ctx.lineTo(100, -20);
+            ctx.lineTo(25, -10);
+            ctx.fill();
+
+            // 手掌
+            ctx.fillStyle = '#ffe0bd';
+            ctx.beginPath();
+            ctx.arc(105, -30, 8, 0, Math.PI*2); 
+            ctx.fill();
+            
+            // 指尖
+            ctx.fillStyle = '#ffe0bd';
+            ctx.beginPath();
+            ctx.moveTo(110, -35);
+            ctx.lineTo(130, -35); 
+            ctx.lineTo(130, -25);
+            ctx.lineTo(110, -25);
+            ctx.fill();
+
+            // 劍氣特效
+            ctx.restore();
+            
+            const fingerX = centerX + (130 * scale);
+            const fingerY = centerY + (-30 * scale);
+            
+            const beamGrad = ctx.createLinearGradient(fingerX, fingerY, width, fingerY);
+            beamGrad.addColorStop(0, 'rgba(0, 255, 255, 0.8)');
+            beamGrad.addColorStop(1, 'rgba(0, 0, 255, 0)');
+            
+            ctx.fillStyle = beamGrad;
+            ctx.beginPath();
+            ctx.moveTo(fingerX, fingerY - 5);
+            ctx.lineTo(width, fingerY - 40); 
+            ctx.lineTo(width, fingerY + 40);
+            ctx.lineTo(fingerX, fingerY + 5);
+            ctx.fill();
+
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 4;
+            ctx.shadowColor = '#00ffff';
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.moveTo(fingerX, fingerY);
+            ctx.lineTo(width, fingerY);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        setTimeout(drawCoverArt, 100);
+        resizeCanvas();
+
+        // --- 音效系統 ---
+        function startSystem() {
+            gameTitle.style.display = 'none';
+            document.getElementById('cover-canvas-container').style.display = 'none';
+            instructionsBox.style.display = 'none';
+            startBtn.style.display = 'none';
+            gameOverlay.style.display = 'none';
+            uiLayer.style.display = 'flex'; 
+            
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            try {
+                const buffer = audioCtx.createBuffer(1, 1, 22050);
+                const source = audioCtx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioCtx.destination);
+                source.start(0);
+            } catch(e) {
+                console.log("Audio unlock attempted");
+            }
+
+            camera.start();
+            isRunning = true;
+            initGame();
+        }
+
+        function playSound(freq, type = 'sawtooth', duration = 0.3) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.01, audioCtx.currentTime + duration); 
+            
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.4, audioCtx.currentTime + 0.02); 
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        function playHitSound() {
+             if (!audioCtx) return;
+             const osc = audioCtx.createOscillator();
+             const gainNode = audioCtx.createGain();
+             osc.type = 'square'; // 金屬感
+             osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+             osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
+             
+             gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+             gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+             
+             osc.connect(gainNode);
+             gainNode.connect(audioCtx.destination);
+             osc.start();
+             osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function playExplosionSound() {
+            if (!audioCtx) return;
+            const bufferSize = audioCtx.sampleRate * 0.5;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(1000, audioCtx.currentTime);
+            filter.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.5);
+
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+
+            noise.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            noise.start();
+        }
+
+        // --- 遊戲物件類別 ---
+
+        class Enemy {
+            constructor(isBoss = false) {
+                this.isBoss = isBoss;
+                this.radius = isBoss ? 80 : 45; // 魔王比較大
+                this.hp = isBoss ? 3 : 1; // 魔王 3 滴血
+                this.maxHp = this.hp;
+
+                this.x = Math.random() * (canvasElement.width - 200) + 100;
+                this.y = Math.random() * (canvasElement.height - 200) + 100;
+                
+                const speed = isBoss ? 8 : 12;
+                this.vx = (Math.random() - 0.5) * speed; 
+                this.vy = (Math.random() - 0.5) * speed;
+                
+                if (isBoss) {
+                     this.face = '👹'; // 魔王臉 (Emoji)
+                } else {
+                     this.face = ['💂', '👺', '🥷', '😠', '⚔️'][Math.floor(Math.random()*5)]; // 士兵臉 (Emoji)
+                }
+                
+                this.isDead = false;
+                this.wobble = Math.random() * Math.PI * 2;
+                this.hitFlash = 0; // 受傷閃爍倒數
+            }
+
+            update() {
+                if (this.isDead) return;
+                this.x += this.vx;
+                this.y += this.vy;
+                this.wobble += 0.05;
+
+                if (this.x < this.radius || this.x > canvasElement.width - this.radius) this.vx *= -1;
+                if (this.y < this.radius || this.y > canvasElement.height - this.radius) this.vy *= -1;
+                
+                if (this.hitFlash > 0) this.hitFlash--;
+            }
+
+            draw(ctx) {
+                if (this.isDead) return;
+                ctx.save();
+                ctx.translate(this.x, this.y + Math.sin(this.wobble)*5); 
+                
+                let innerColor, outerColor, shadowColor;
+                if (this.isBoss) {
+                    innerColor = 'rgba(100, 0, 0, 0.9)';
+                    outerColor = 'rgba(50, 0, 0, 0.7)';
+                    shadowColor = '#ff0000';
+                } else {
+                    innerColor = 'rgba(100, 100, 100, 0.8)';
+                    outerColor = 'rgba(50, 50, 80, 0.6)';
+                    shadowColor = '#aaa';
+                }
+
+                if (this.hitFlash > 0) {
+                     innerColor = 'white';
+                     shadowColor = 'white';
+                }
+
+                const grd = ctx.createRadialGradient(0, 0, this.radius*0.2, 0, 0, this.radius);
+                grd.addColorStop(0, innerColor);
+                grd.addColorStop(0.7, outerColor);
+                grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = grd;
+                ctx.shadowBlur = this.isBoss ? 20 : 10;
+                ctx.shadowColor = shadowColor;
+                ctx.fill();
+
+                // 使用 Emoji 文字繪製 (改回原版)
+                ctx.font = (this.isBoss ? "80px" : "50px") + " Arial";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.shadowBlur = 0;
+                ctx.scale(-1, 1); 
+                ctx.fillStyle = 'white'; // 確保 Emoji 在某些瀏覽器不會變黑
+                ctx.fillText(this.face, 0, 0);
+                
+                ctx.restore();
+            }
+        }
+
+        class Explosion {
+            constructor(x, y, isBig = false) {
+                this.particles = [];
+                const count = isBig ? 60 : 30; // 魔王爆炸粒子更多
+                for(let i=0; i<count; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * (isBig ? 15 : 10) + 5;
+                    this.particles.push({
+                        x: x, y: y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        life: 1.0,
+                        size: Math.random() * (isBig ? 12 : 8) + 4,
+                        color: `hsl(${Math.random()*60 + (isBig ? 0 : 0)}, 100%, 50%)` 
+                    });
+                }
+            }
+
+            update() {
+                this.particles.forEach(p => {
+                    p.x += p.vx; p.y += p.vy;
+                    p.life -= 0.04;
+                    p.size *= 0.95;
+                });
+                this.particles = this.particles.filter(p => p.life > 0);
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter'; 
+                this.particles.forEach(p => {
+                    ctx.globalAlpha = p.life;
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = p.color;
+                    ctx.fill();
+                });
+                ctx.restore();
+            }
+        }
+
+        // --- 視覺特效 ---
+
+        class EnergyCharge {
+            constructor(x, y, color) {
+                this.x = x; this.y = y; this.color = color;
+                this.radius = 5;
+                this.maxRadius = 50; 
+                this.life = 8; 
+                this.opacity = 1.0;
+            }
+            update() {
+                this.radius += (this.maxRadius - this.radius) * 0.4;
+                this.life--;
+                this.opacity = this.life / 8;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+                
+                let grd = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+                grd.addColorStop(0, 'white');
+                grd.addColorStop(0.4, this.color);
+                grd.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = grd;
+                ctx.globalAlpha = this.opacity;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 40;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Beam {
+            constructor(x, y, dx, dy, color, width) {
+                this.x = x; this.y = y; 
+                const mag = Math.sqrt(dx*dx + dy*dy);
+                this.dx = (dx / mag) * 90; 
+                this.dy = (dy / mag) * 90;
+                this.color = color;
+                this.baseWidth = width;
+                this.life = 60; 
+                this.maxLife = 60;
+                this.length = 0;
+                this.maxLength = 800; 
+                this.isDead = false;
+            }
+
+            update() {
+                this.x += this.dx; this.y += this.dy;
+                this.life--;
+                if (this.length < this.maxLength) this.length += 80;
+                
+                const isOutOfBounds = 
+                    this.x < -1000 || this.x > canvasElement.width + 1000 ||
+                    this.y < -1000 || this.y > canvasElement.height + 1000;
+                
+                if (isOutOfBounds) {
+                    this.isDead = true;
+                }
+            }
+
+            draw(ctx) {
+                if (this.isDead) return;
+                const alpha = Math.max(0, this.life / this.maxLife);
+                const tailX = this.x - (this.dx / 90) * this.length; 
+                const tailY = this.y - (this.dy / 90) * this.length;
+
+                ctx.save();
+                ctx.lineCap = 'round';
+                ctx.globalAlpha = alpha;
+                ctx.globalCompositeOperation = 'lighter'; 
+
+                // 1. 外層光暈
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(tailX, tailY);
+                ctx.lineWidth = this.baseWidth * 2.5; 
+                ctx.strokeStyle = this.color;
+                ctx.shadowBlur = 40; 
+                ctx.shadowColor = this.color;
+                ctx.stroke();
+
+                // 2. 核心光束
+                const gradient = ctx.createLinearGradient(this.x, this.y, tailX, tailY);
+                gradient.addColorStop(0, 'white'); 
+                gradient.addColorStop(0.2, this.color); 
+                gradient.addColorStop(1, 'transparent'); 
+
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(tailX, tailY);
+                ctx.lineWidth = this.baseWidth * 0.8; 
+                ctx.strokeStyle = gradient;
+                ctx.shadowBlur = 10; 
+                ctx.shadowColor = 'white';
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        }
+
+        // --- 劍氣資料 ---
+        const SWORDS = {
+            thumb:  { color: '#FFD700', width: 18, freq: 150, isExtended: false }, 
+            index:  { color: '#00FF00', width: 10, freq: 600, isExtended: false }, 
+            middle: { color: '#FF0000', width: 15, freq: 300, isExtended: false }, 
+            ring:   { color: '#FFA500', width: 12, freq: 250, isExtended: false }, 
+            pinky:  { color: '#00FFFF', width: 8,  freq: 900, isExtended: false }  
+        };
+
+        // --- 全局變數 ---
+        let beams = []; 
+        let charges = []; 
+        let enemies = [];
+        let explosions = [];
+        let lastShotTime = 0;
+        const SHOT_COOLDOWN = 100;
+
+        function initGame() {
+            gameWon = false;
+            victoryText.style.display = 'none';
+            restartBtn.style.display = 'none';
+            gameOverlay.style.backgroundColor = 'rgba(0,0,0,0.95)';
+            enemies = [];
+            beams = [];
+            explosions = [];
+            charges = [];
+            
+            // 9 個普通西夏兵
+            for(let i=0; i<9; i++) enemies.push(new Enemy(false));
+            // 1 個魔王
+            enemies.push(new Enemy(true));
+
+            updateUI();
+        }
+
+        function restartGame() {
+            gameOverlay.style.display = 'none';
+            initGame();
+        }
+
+        function updateUI() {
+            const aliveCount = enemies.filter(e => !e.isDead).length;
+            enemyCountSpan.innerText = aliveCount;
+            
+            if (aliveCount === 0 && !gameWon) {
+                gameWon = true;
+                setTimeout(() => {
+                    gameOverlay.style.display = 'flex';
+                    gameOverlay.style.backgroundColor = 'rgba(0,0,0,0.6)'; 
+                    victoryText.style.display = 'block';
+                    restartBtn.style.display = 'block';
+                    [400, 500, 600, 800].forEach((freq, i) => {
+                        setTimeout(() => playSound(freq, 'sine', 0.5), i * 200);
+                    });
+                }, 1000);
+            }
+        }
+
+        function distanceSq(p1, p2) {
+            return Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2);
+        }
+
+        // --- 核心循環 ---
+        function onResults(results) {
+            if (!isRunning) return;
+
+            // 1. 繪製背景 
+            canvasCtx.save();
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.fillStyle = 'rgba(0,0,0,0.3)';
+            canvasCtx.fillRect(0,0,canvasElement.width, canvasElement.height);
+            canvasCtx.restore();
+            
+            // 2. 更新與繪製遊戲物件
+            enemies.forEach(e => { e.update(); e.draw(canvasCtx); });
+
+            // 3. 顯示冷卻/鎖定提示
+            if (beams.length > 0) {
+                cooldownIndicator.style.opacity = 1;
+            } else {
+                cooldownIndicator.style.opacity = 0;
+            }
+
+            for (let i = charges.length - 1; i >= 0; i--) {
+                charges[i].update();
+                charges[i].draw(canvasCtx);
+                if (charges[i].life <= 0) charges.splice(i, 1);
+            }
+
+            // 更新劍氣
+            for (let i = beams.length - 1; i >= 0; i--) {
+                const beam = beams[i];
+                if (beam.isDead) continue;
+                beam.update();
+                beam.draw(canvasCtx);
+
+                enemies.forEach(enemy => {
+                    if (!enemy.isDead && !beam.isDead) {
+                        const dist = Math.hypot(beam.x - enemy.x, beam.y - enemy.y);
+                        // 判定距離：敵人半徑 + 30 寬容度
+                        if (dist < enemy.radius + 30) {
+                            beam.isDead = true; // 擊中後劍氣消失
+                            
+                            // 扣血邏輯
+                            enemy.hp--;
+                            enemy.hitFlash = 10; // 閃爍白光
+
+                            if (enemy.hp <= 0) {
+                                // 死亡
+                                enemy.isDead = true;
+                                explosions.push(new Explosion(enemy.x, enemy.y, enemy.isBoss));
+                                playExplosionSound();
+                            } else {
+                                // 受傷未死
+                                playHitSound();
+                            }
+                            
+                            updateUI();
+                        }
+                    }
+                });
+                if (beam.life <= 0) beam.isDead = true;
+                if (beam.isDead) beams.splice(i, 1);
+            }
+
+            explosions.forEach(e => { e.update(); e.draw(canvasCtx); });
+            explosions = explosions.filter(e => e.particles.length > 0);
+
+            // 4. 手勢偵測 (有劍氣時不偵測發射)
+            if (beams.length === 0 && results.multiHandLandmarks && !gameWon) {
+                const now = Date.now();
+                let shotFiredThisFrame = false;
+
+                for (const landmarks of results.multiHandLandmarks) {
+                    const fingers = [
+                        { key: 'thumb',  tip: 4,  base: 2,  pip: 3 }, 
+                        { key: 'index',  tip: 8,  base: 5,  pip: 6 },
+                        { key: 'middle', tip: 12, base: 9,  pip: 10 },
+                        { key: 'ring',   tip: 16, base: 13, pip: 14 },
+                        { key: 'pinky',  tip: 20, base: 17, pip: 18 }
+                    ];
+                    const wrist = landmarks[0];
+
+                    for (let f of fingers) {
+                        const tip = landmarks[f.tip];
+                        const base = landmarks[f.base];
+                        const pip = landmarks[f.pip];
+                        
+                        let currentIsExtended = false;
+                        if (f.key === 'thumb') {
+                            currentIsExtended = distanceSq(tip, landmarks[17]) > distanceSq(landmarks[3], landmarks[17]) * 1.2; 
+                        } else {
+                            currentIsExtended = distanceSq(tip, wrist) > distanceSq(pip, wrist) * 1.15; 
+                        }
+
+                        const swordData = SWORDS[f.key];
+
+                        if (currentIsExtended && !swordData.isExtended && beams.length === 0) {
+                            if (!shotFiredThisFrame && (now - lastShotTime > SHOT_COOLDOWN)) {
+                                const startX = tip.x * canvasElement.width;
+                                const startY = tip.y * canvasElement.height;
+                                const baseX = base.x * canvasElement.width;
+                                const baseY = base.y * canvasElement.height;
+                                
+                                charges.push(new EnergyCharge(startX, startY, swordData.color));
+
+                                beams.push(new Beam(
+                                    startX, startY, 
+                                    startX - baseX, startY - baseY, 
+                                    swordData.color, 
+                                    swordData.width
+                                ));
+                                
+                                playSound(swordData.freq);
+                                lastShotTime = now;
+                                shotFiredThisFrame = true; 
+                                
+                                break; 
+                            }
+                        }
+                        swordData.isExtended = currentIsExtended;
+                    }
+                    if(shotFiredThisFrame) break; 
+                }
+            } else {
+                if (results.multiHandLandmarks) {
+                    for (const landmarks of results.multiHandLandmarks) {
+                         const fingers = [
+                            { key: 'thumb',  tip: 4,  base: 2,  pip: 3 }, 
+                            { key: 'index',  tip: 8,  base: 5,  pip: 6 },
+                            { key: 'middle', tip: 12, base: 9,  pip: 10 },
+                            { key: 'ring',   tip: 16, base: 13, pip: 14 },
+                            { key: 'pinky',  tip: 20, base: 17, pip: 18 }
+                        ];
+                        const wrist = landmarks[0];
+                        for (let f of fingers) {
+                            const tip = landmarks[f.tip];
+                            const base = landmarks[f.base];
+                            const pip = landmarks[f.pip];
+                            let currentIsExtended = false;
+                             if (f.key === 'thumb') {
+                                currentIsExtended = distanceSq(tip, landmarks[17]) > distanceSq(landmarks[3], landmarks[17]) * 1.2; 
+                            } else {
+                                currentIsExtended = distanceSq(tip, wrist) > distanceSq(pip, wrist) * 1.15; 
+                            }
+                            SWORDS[f.key].isExtended = currentIsExtended;
+                        }
+                    }
+                }
+            }
+        }
+
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0, 
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+    </script>
+</body>
+</html>

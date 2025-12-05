@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>極致奢華 3D 聖誕樹 - 數學方程式版</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+        canvas { display: block; }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #camera-preview {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 160px; height: 120px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 10px; opacity: 0.8;
+            transform: scaleX(-1); /* 鏡像 */
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+
+        #loading {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; display: flex; justify-content: center; align-items: center;
+            color: #ffd700; font-size: 1.5rem; letter-spacing: 3px; z-index: 100;
+            flex-direction: column;
+            font-weight: bold;
+            transition: opacity 0.8s;
+            pointer-events: none;
+        }
+        
+        .loader-bar {
+            width: 200px; height: 4px; background: #333; margin-top: 20px;
+            position: relative; overflow: hidden; border-radius: 2px;
+        }
+        .loader-progress {
+            position: absolute; top: 0; left: 0; height: 100%; width: 0%;
+            background: #ffd700; transition: width 0.2s;
+            animation: load 2s infinite;
+        }
+        @keyframes load { 0% { left: -100%; width: 50%; } 100% { left: 100%; width: 50%; } }
+
+        /* 左上角：手勢說明 */
+        .gesture-hint {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            display: flex;
+            flex-direction: column; 
+            gap: 25px;
+            opacity: 0.9;
+        }
+        .hint-item { 
+            text-align: left; 
+            color: #ccc; 
+            font-size: 1rem; 
+            font-weight: bold; 
+            text-shadow: 0 0 5px rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            transition: all 0.3s;
+        }
+        .icon { 
+            font-size: 2.5rem; 
+            display: block; 
+            filter: drop-shadow(0 0 5px rgba(0,0,0,0.5));
+            width: 40px;
+            text-align: center;
+        }
+        .active-hint { color: #ffd700; opacity: 1; text-shadow: 0 0 15px #ffd700; transform: scale(1.1); }
+        .inactive-hint { opacity: 0.3; transform: scale(0.95); }
+        
+        /* 右上角：控制提示 */
+        #control-hint {
+            position: absolute; 
+            top: 30px; 
+            right: 30px; 
+            text-align: right;
+            color: rgba(255,255,255,0.8); 
+            font-size: 1.1rem; 
+            letter-spacing: 2px;
+            pointer-events: none; 
+            text-shadow: 0 0 10px rgba(0,0,0,1);
+            border-right: 3px solid #ffd700;
+            padding-right: 15px;
+            font-weight: bold;
+        }
+    </style>
+    <!-- Phosphor Icons (CDN) -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Three.js (CDN) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Post Processing (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+
+    <!-- MediaPipe (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <div id="loading">
+        <div id="loading-text">正在啟動真實光影引擎...</div>
+        <div class="loader-bar"><div class="loader-progress"></div></div>
+    </div>
+
+    <div id="ui-layer">
+        <div id="control-hint">左右移動手掌<br>可旋轉視角</div>
+
+        <div class="gesture-hint">
+            <div class="hint-item" id="hint-open">
+                <i class="icon ph-fill ph-hand-palm"></i>
+                <div>
+                    <div>張開手掌</div>
+                    <div style="font-size: 0.8em; opacity: 0.7;">釋放粒子</div>
+                </div>
+            </div>
+            <div class="hint-item" id="hint-closed">
+                <i class="icon ph-fill ph-hand-fist"></i>
+                <div>
+                    <div>握緊 / 比 2</div>
+                    <div style="font-size: 0.8em; opacity: 0.7;">凝聚聖誕樹</div>
+                </div>
+            </div>
+            <div class="hint-item" id="hint-batman">
+                <i class="icon ph-fill ph-hand-pointing"></i>
+                <div>
+                    <div>比 1 (食指)</div>
+                    <div style="font-size: 0.8em; opacity: 0.7;">蝙蝠俠模式</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <video id="input-video" style="display:none"></video>
+    <canvas id="camera-preview"></canvas>
+    
+    <script>
+        // --- 設定與全域變數 ---
+        const GREEN_COUNT = 5000;
+        const RED_COUNT = 80;
+        const GOLD_COUNT = 80;
+        const DIAMOND_COUNT = 60;
+        const EMOJI_COUNT = 50;
+        
+        const TREE_HEIGHT = 16;
+        const TREE_RADIUS = 6.5; 
+        
+        let scene, camera, renderer, composer;
+        let particleGroup; 
+        let topStar; 
+        let pointLights = []; 
+        let snowSystem; 
+        
+        let chaosFactor = 0.0; 
+        let targetChaosFactor = 0.0;
+        let batmanFactor = 0.0;
+        let targetBatmanFactor = 0.0;
+
+        let handRotationY = 0; 
+        let isHandDetected = false;
+        let time = 0;
+        
+        let particleMeshes = []; 
+        let dummy = new THREE.Object3D();
+        
+        let batmanPoints = [];
+
+        const EMOJI_LIST = [
+            '🎁', '❄️', '🎅', '🦌', '⛄', '🧸', '🧦', '🎀', '🍬', '🍭', '❤️'
+        ];
+
+        function createEmojiTexture(emoji, size = 512) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.font = `bold ${size * 0.75}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`; 
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'white'; 
+            ctx.fillText(emoji, size / 2, size / 2);
+            const texture = new THREE.CanvasTexture(canvas);
+            return texture;
+        }
+
+        // --- 使用您指定的數學方程式 (Monte Carlo 演算法) 生成蝙蝠俠點雲 ---
+        function getBatmanPoint() {
+            let x, y;
+            let found = false;
+            let attempts = 0;
+            
+            // 恢復使用條件判斷較為細膩的蒙地卡羅演算法
+            while (!found && attempts < 1000) { // 防止無限迴圈
+                attempts++;
+                x = (Math.random() - 0.5) * 15; // x 範圍約在 -7.5 到 7.5
+                y = (Math.random() - 0.5) * 8;  // y 範圍約在 -4 到 4
+                
+                const absX = Math.abs(x);
+                let isInside = false;
+
+                // 邊界檢查與方程式
+                if (absX > 7.5 || Math.abs(y) > 3.5) {
+                    // Skip
+                } else if (y > 0) {
+                    // 上半部
+                    if (absX < 0.5) {
+                        if (y < 2.25) isInside = true; // 頭頂
+                    } else if (absX < 0.75) {
+                        if (y < 3 * absX + 0.75) isInside = true; 
+                    } else if (absX < 1) {
+                        if (y < 9 - 8 * absX) isInside = true; 
+                    } else if (absX < 3) {
+                        // 上翼曲線 1 (肩膀)
+                         try {
+                            const val = 1.5 - 0.5 * absX - (6 * Math.sqrt(10) / 14) * (Math.sqrt(3 - absX*absX + 2 * absX) - 2);
+                            if (y < val) isInside = true;
+                        } catch(e) {}
+                    } else if (absX < 7) {
+                        // 上翼曲線 2
+                        try {
+                            const val = 3 * Math.sqrt(1 - (x / 7) * (x / 7));
+                            if (y < val) isInside = true;
+                        } catch(e) {}
+                    }
+                } else {
+                    // 下半部
+                    if (absX < 4) {
+                        // 下部中心和尾巴
+                        try {
+                            const val = Math.abs(x/2) - ((3*Math.sqrt(33)-7)/112)*x*x - 3 + Math.sqrt(1 - Math.pow(Math.abs(absX-2)-1, 2));
+                            if (y > val) isInside = true;
+                        } catch(e) {}
+                    } else {
+                        // 下翼曲線
+                        try {
+                            const val = -3 * Math.sqrt(1 - (x / 7) * (x / 7));
+                            if (y > val) isInside = true;
+                        } catch(e) {}
+                    }
+                }
+                
+                if (isInside) found = true;
+            }
+            
+            // 如果嘗試太久沒找到，給一個默認點
+            if (!found) { x=0; y=0; }
+
+            const z = (Math.random() - 0.5) * 1.5; // 稍微加厚一點，讓側面看也有立體感
+            
+            // 縮放與位移：放大 1.5 倍，並向上移動到樹的中心位置 (約 y=9)
+            return new THREE.Vector3(x * 1.5, y * 1.5 + 9, z);
+        }
+
+        // 預生成點雲陣列
+        function generateBatmanPointsArray(count) {
+            const points = [];
+            for(let i=0; i<count; i++) {
+                points.push(getBatmanPoint());
+            }
+            return points;
+        }
+
+        function initThree() {
+            // 產生足夠數量的蝙蝠俠點 (大約覆蓋所有粒子數)
+            const totalParticles = GREEN_COUNT + RED_COUNT + GOLD_COUNT + DIAMOND_COUNT + EMOJI_COUNT;
+            batmanPoints = generateBatmanPointsArray(totalParticles + 100);
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050505, 0.015);
+
+            particleGroup = new THREE.Group();
+            scene.add(particleGroup);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 25;
+            camera.position.y = 8;
+            camera.lookAt(0, 7, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x222222); 
+            scene.add(ambientLight);
+            
+            const mainLight = new THREE.PointLight(0xffffff, 2, 50);
+            mainLight.position.set(0, 20, 10);
+            scene.add(mainLight);
+
+            const colors = [0xff0000, 0x00ff00, 0x0000ff];
+            for(let i=0; i<3; i++) {
+                const l = new THREE.PointLight(colors[i], 1.5, 30);
+                scene.add(l);
+                pointLights.push({ light: l, offset: i * (Math.PI * 2 / 3), speed: 0.5 + i * 0.2 });
+            }
+
+            const renderScene = new THREE.RenderPass(scene, camera);
+            const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 0.4; 
+            bloomPass.strength = 1.5;  
+            bloomPass.radius = 0.3;
+
+            composer = new THREE.EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            createSnow(); 
+            createGreenCrystals(); 
+            createOrnaments();     
+            createEmojiParticles();
+            createTopStar();
+            
+            const planeGeo = new THREE.PlaneGeometry(200, 200);
+            const planeMat = new THREE.MeshStandardMaterial({ 
+                color: 0x111111,
+                roughness: 0.1,
+                metalness: 0.5
+            });
+            const plane = new THREE.Mesh(planeGeo, planeMat);
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.y = -2;
+            scene.add(plane);
+
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+        }
+
+        // --- 背景雪 ---
+        function createSnow() {
+            const snowGeo = new THREE.BufferGeometry();
+            const snowCount = 2000;
+            const pos = new Float32Array(snowCount * 3);
+            const vel = new Float32Array(snowCount);
+
+            for(let i=0; i<snowCount; i++) {
+                pos[i*3] = (Math.random() - 0.5) * 100; 
+                pos[i*3+1] = Math.random() * 60;        
+                pos[i*3+2] = (Math.random() - 0.5) * 60 - 10; 
+                vel[i] = 0.05 + Math.random() * 0.1;
+            }
+
+            snowGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            
+            const snowMat = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.2,
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending
+            });
+
+            snowSystem = new THREE.Points(snowGeo, snowMat);
+            snowSystem.userData = { velocities: vel };
+            scene.add(snowSystem);
+        }
+
+        function createTopStar() {
+            const texture = createEmojiTexture('⭐', 512);
+            const geometry = new THREE.PlaneGeometry(3.0, 3.0); 
+            const material = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                side: THREE.DoubleSide,
+            });
+
+            topStar = new THREE.Mesh(geometry, material);
+            topStar.userData = {
+                target: new THREE.Vector3(0, TREE_HEIGHT - 1.5, 0),
+                chaos: new THREE.Vector3(0, TREE_HEIGHT + 15, 5),
+                batman: new THREE.Vector3(0, 50, 0)
+            };
+            topStar.position.copy(topStar.userData.target);
+            particleGroup.add(topStar);
+            
+            const starLight = new THREE.PointLight(0xffd700, 2, 20);
+            topStar.add(starLight);
+        }
+
+        // 輔助：建立粒子並設定多種目標 (含防崩潰)
+        // 修改：傳入 globalIndex 以便從 batmanPoints 中取不同的點
+        let globalParticleIndex = 0;
+
+        function setupParticleTargets(mesh, count, type) {
+            mesh.userData.particles = [];
+            for (let i = 0; i < count; i++) {
+                // 1. Tree
+                let tx, ty, tz;
+                if (type === 'green') {
+                    const h = Math.pow(Math.random(), 0.8);
+                    const y = h * TREE_HEIGHT;
+                    const maxR = (1 - h) * TREE_RADIUS;
+                    const r = Math.sqrt(Math.random()) * maxR;
+                    const angle = Math.random() * Math.PI * 2;
+                    tx = Math.cos(angle) * r;
+                    tz = Math.sin(angle) * r;
+                    ty = y - 2;
+                } else {
+                    const h = Math.random();
+                    const y = h * TREE_HEIGHT;
+                    const r = (1 - h) * TREE_RADIUS * 1.1; 
+                    const angle = Math.random() * Math.PI * 2;
+                    tx = Math.cos(angle) * r;
+                    tz = Math.sin(angle) * r;
+                    ty = y - 2;
+                }
+
+                // 2. Chaos
+                const explodeR = 15 + Math.random() * 20;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const ex = explodeR * Math.sin(phi) * Math.cos(theta);
+                const ey = explodeR * Math.sin(phi) * Math.sin(theta) + 10;
+                const ez = explodeR * Math.cos(phi);
+
+                // 3. Batman (從預生成的點雲中依序取點，確保形狀完整)
+                // 使用 globalParticleIndex 並循環使用 batmanPoints
+                const safeIndex = globalParticleIndex % batmanPoints.length;
+                const batPos = batmanPoints[safeIndex];
+                globalParticleIndex++;
+
+                mesh.userData.particles.push({
+                    target: new THREE.Vector3(tx, ty, tz),
+                    chaos: new THREE.Vector3(ex, ey, ez),
+                    batman: new THREE.Vector3(batPos.x, batPos.y, batPos.z),
+                    rotationSpeed: new THREE.Vector3(Math.random(), Math.random(), Math.random()).multiplyScalar(0.03),
+                    initialRotation: new THREE.Euler(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI),
+                    phase: Math.random() * Math.PI * 2,
+                    currentPos: new THREE.Vector3(),
+                    type: type
+                });
+            }
+        }
+
+        function createGreenCrystals() {
+            const geometry = new THREE.TetrahedronGeometry(0.12); 
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x006400, roughness: 0.3, metalness: 0.4, emissive: 0x002200,
+            });
+            const mesh = new THREE.InstancedMesh(geometry, material, GREEN_COUNT);
+            setupParticleTargets(mesh, GREEN_COUNT, 'green');
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            particleGroup.add(mesh);
+            particleMeshes.push(mesh);
+        }
+
+        function createEmojiParticles() {
+            const geometry = new THREE.PlaneGeometry(1.5, 1.5);
+            const countPerType = Math.ceil(EMOJI_COUNT / EMOJI_LIST.length);
+            EMOJI_LIST.forEach((emoji) => {
+                const texture = createEmojiTexture(emoji, 512); 
+                const material = new THREE.MeshBasicMaterial({
+                    map: texture, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide
+                });
+                const mesh = new THREE.InstancedMesh(geometry, material, countPerType);
+                setupParticleTargets(mesh, countPerType, 'emoji');
+                mesh.userData.particles.forEach(p => p.emojiChar = emoji);
+                mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                particleGroup.add(mesh);
+                particleMeshes.push(mesh);
+            });
+        }
+
+        function createOrnaments() {
+            const geoms = [
+                new THREE.SphereGeometry(0.25, 16, 16),
+                new THREE.BoxGeometry(0.35, 0.35, 0.35),
+                new THREE.OctahedronGeometry(0.2)
+            ];
+            const mats = [
+                new THREE.MeshStandardMaterial({ color: 0xdd0000, metalness: 0.6, roughness: 0.1 }),
+                new THREE.MeshStandardMaterial({ color: 0xffaa00, metalness: 1.0, roughness: 0.2 }),
+                new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 5.0, toneMapped: false })
+            ];
+            const counts = [RED_COUNT, GOLD_COUNT, DIAMOND_COUNT];
+            
+            for(let i=0; i<3; i++) {
+                const mesh = new THREE.InstancedMesh(geoms[i], mats[i], counts[i]);
+                setupParticleTargets(mesh, counts[i], 'ornament');
+                mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                particleGroup.add(mesh);
+                particleMeshes.push(mesh);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            time += 0.01;
+            chaosFactor += (targetChaosFactor - chaosFactor) * 0.08;
+            batmanFactor += (targetBatmanFactor - batmanFactor) * 0.08;
+
+            if(snowSystem) {
+                const positions = snowSystem.geometry.attributes.position.array;
+                const velocities = snowSystem.userData.velocities;
+                for(let i=0; i<positions.length/3; i++) {
+                    positions[i*3+1] -= velocities[i];
+                    if(positions[i*3+1] < -10) positions[i*3+1] = 60; 
+                }
+                snowSystem.geometry.attributes.position.needsUpdate = true;
+                snowSystem.rotation.y = Math.sin(time * 0.2) * 0.1;
+            }
+
+            pointLights.forEach((pl, idx) => {
+                const r = 15;
+                pl.light.position.x = Math.cos(time * pl.speed + pl.offset) * r;
+                pl.light.position.z = Math.sin(time * pl.speed + pl.offset) * r;
+                pl.light.position.y = 8 + Math.sin(time * 2 + idx) * 5;
+            });
+
+            if (isHandDetected) {
+                particleGroup.rotation.y += (handRotationY - particleGroup.rotation.y) * 0.05;
+            } else {
+                particleGroup.rotation.y += 0.003; 
+                handRotationY = particleGroup.rotation.y % (Math.PI * 2);
+            }
+            
+            if (topStar) {
+                const scalePulse = 1.0 + Math.sin(time * 5) * 0.2;
+                const chaosScale = 1.0 + chaosFactor * 0.5; 
+                const finalScale = scalePulse * chaosScale * (1 - batmanFactor); 
+                
+                topStar.scale.set(finalScale, finalScale, finalScale);
+                topStar.lookAt(camera.position);
+
+                const tx = topStar.userData.target.x;
+                const ty = topStar.userData.target.y;
+                const tz = topStar.userData.target.z;
+                const cx = topStar.userData.chaos.x;
+                const cy = topStar.userData.chaos.y;
+                const cz = topStar.userData.chaos.z;
+                const bx = topStar.userData.batman.x;
+                const by = topStar.userData.batman.y;
+                const bz = topStar.userData.batman.z;
+
+                const tempX = THREE.MathUtils.lerp(tx, cx, chaosFactor);
+                const tempY = THREE.MathUtils.lerp(ty, cy, chaosFactor);
+                const tempZ = THREE.MathUtils.lerp(tz, cz, chaosFactor);
+
+                topStar.position.x = THREE.MathUtils.lerp(tempX, bx, batmanFactor);
+                topStar.position.y = THREE.MathUtils.lerp(tempY, by, batmanFactor);
+                topStar.position.z = THREE.MathUtils.lerp(tempZ, bz, batmanFactor);
+            }
+
+            particleMeshes.forEach(mesh => {
+                const particlesData = mesh.userData.particles;
+                const isSanta = (mesh.userData.emojiChar === '🎅');
+
+                for (let i = 0; i < mesh.count; i++) {
+                    const data = particlesData[i];
+                    if (!data || !data.currentPos) continue; 
+
+                    const floatScale = chaosFactor * 2.0 + 0.1;
+                    const floatX = Math.sin(time + data.phase) * 0.05 * floatScale;
+                    const floatY = Math.cos(time * 0.8 + data.phase) * 0.05 * floatScale;
+                    const floatZ = Math.sin(time * 1.2 + data.phase) * 0.05 * floatScale;
+
+                    const tcX = THREE.MathUtils.lerp(data.target.x, data.chaos.x, chaosFactor);
+                    const tcY = THREE.MathUtils.lerp(data.target.y, data.chaos.y, chaosFactor);
+                    const tcZ = THREE.MathUtils.lerp(data.target.z, data.chaos.z, chaosFactor);
+
+                    const finalFloatX = floatX * (1 - batmanFactor * 0.8);
+                    const finalFloatY = floatY * (1 - batmanFactor * 0.8);
+                    const finalFloatZ = floatZ * (1 - batmanFactor * 0.8);
+
+                    const px = THREE.MathUtils.lerp(tcX, data.batman.x, batmanFactor) + finalFloatX;
+                    const py = THREE.MathUtils.lerp(tcY, data.batman.y, batmanFactor) + finalFloatY;
+                    const pz = THREE.MathUtils.lerp(tcZ, data.batman.z, batmanFactor) + finalFloatZ;
+
+                    dummy.position.set(px, py, pz);
+                    data.currentPos.set(px, py, pz); 
+
+                    dummy.rotation.copy(data.initialRotation);
+                    
+                    let speedMultiplier = 1.0;
+                    if (data.type === 'emoji') {
+                        if (isSanta && chaosFactor > 0.5) speedMultiplier = 0.2; 
+                        else speedMultiplier = 2.0;
+                    }
+                    
+                    const finalSpeed = speedMultiplier * (1 - batmanFactor * 0.8);
+
+                    dummy.rotation.x += data.rotationSpeed.x * (1 + chaosFactor * 5) * time * 10 * finalSpeed;
+                    dummy.rotation.y += data.rotationSpeed.y * (1 + chaosFactor * 5) * time * 10 * finalSpeed;
+                    
+                    let scale = 1.0 + chaosFactor * 0.5;
+                    if (data.type === 'emoji') {
+                        if (isSanta) scale = 1.2 + chaosFactor * 2.3; 
+                        else scale = 1.0 + chaosFactor * 0.8;
+                    }
+                    scale = scale * (1 - batmanFactor * 0.3);
+                    
+                    dummy.scale.set(scale, scale, scale);
+
+                    dummy.updateMatrix();
+                    mesh.setMatrixAt(i, dummy.matrix);
+                }
+                mesh.instanceMatrix.needsUpdate = true;
+            });
+            
+            camera.position.x = Math.sin(time * 0.1) * 1.5;
+            camera.lookAt(0, 8, 0); 
+            
+            composer.render();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        const videoElement = document.getElementById('input-video');
+        const previewCanvas = document.getElementById('camera-preview');
+        const pCtx = previewCanvas.getContext('2d');
+        const hintOpen = document.getElementById('hint-open');
+        const hintClosed = document.getElementById('hint-closed');
+        const hintBatman = document.getElementById('hint-batman');
+
+        function onResults(results) {
+            pCtx.save();
+            pCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            pCtx.drawImage(results.image, 0, 0, previewCanvas.width, previewCanvas.height);
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                isHandDetected = true;
+                const landmarks = results.multiHandLandmarks[0];
+                drawHand(landmarks, pCtx); 
+
+                const wrist = landmarks[0];
+                const middleMCP = landmarks[9]; 
+                const handSize = Math.hypot(middleMCP.x - wrist.x, middleMCP.y - wrist.y);
+                
+                function isExtended(tipIdx, mcpIdx) {
+                    const dist = Math.hypot(landmarks[tipIdx].x - landmarks[mcpIdx].x, landmarks[tipIdx].y - landmarks[mcpIdx].y);
+                    return dist > handSize * 0.6;
+                }
+                
+                const isIndexUp = isExtended(8, 5);
+                const isMiddleUp = isExtended(12, 9);
+                const isRingUp = isExtended(16, 13);
+                const isPinkyUp = isExtended(20, 17);
+                
+                const extendedCount = (isIndexUp?1:0) + (isMiddleUp?1:0) + (isRingUp?1:0) + (isPinkyUp?1:0);
+
+                const isPointingOne = isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp;
+                const isOpenHand = extendedCount >= 3;
+                
+                if (isPointingOne) {
+                    targetBatmanFactor = 1.0;
+                    targetChaosFactor = 0.0;
+                    hintBatman.classList.add('active-hint');
+                    hintBatman.classList.remove('inactive-hint');
+                    hintClosed.classList.add('inactive-hint');
+                    hintClosed.classList.remove('active-hint');
+                    hintOpen.classList.add('inactive-hint');
+                    hintOpen.classList.remove('active-hint');
+                } else if (isOpenHand) {
+                    targetBatmanFactor = 0.0;
+                    targetChaosFactor = 1.0;
+                    hintOpen.classList.add('active-hint');
+                    hintOpen.classList.remove('inactive-hint');
+                    hintClosed.classList.add('inactive-hint');
+                    hintClosed.classList.remove('active-hint');
+                    hintBatman.classList.add('inactive-hint');
+                    hintBatman.classList.remove('active-hint');
+                } else {
+                    targetBatmanFactor = 0.0;
+                    targetChaosFactor = 0.0;
+                    hintClosed.classList.add('active-hint');
+                    hintClosed.classList.remove('inactive-hint');
+                    hintOpen.classList.add('inactive-hint');
+                    hintOpen.classList.remove('active-hint');
+                    hintBatman.classList.add('inactive-hint');
+                    hintBatman.classList.remove('active-hint');
+                }
+
+                handRotationY = (0.5 - landmarks[0].x) * 4.0; 
+
+            } else {
+                isHandDetected = false;
+                hintOpen.classList.remove('active-hint', 'inactive-hint');
+                hintClosed.classList.remove('active-hint', 'inactive-hint');
+                hintBatman.classList.remove('active-hint', 'inactive-hint');
+            }
+            pCtx.restore();
+        }
+
+        function drawHand(landmarks, ctx) {
+            ctx.beginPath();
+            ctx.strokeStyle = "#00ff00";
+            ctx.lineWidth = 2;
+            const connections = [[0,1],[1,2],[2,3],[3,4], [0,5],[5,6],[6,7],[7,8], [5,9],[9,10],[10,11],[11,12], [9,13],[13,14],[14,15],[15,16], [13,17],[17,18],[18,19],[19,20], [0,17]];
+            connections.forEach(pair => {
+                const p1 = landmarks[pair[0]];
+                const p2 = landmarks[pair[1]];
+                ctx.moveTo(p1.x * previewCanvas.width, p1.y * previewCanvas.height);
+                ctx.lineTo(p2.x * previewCanvas.width, p2.y * previewCanvas.height);
+            });
+            ctx.stroke();
+        }
+
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        hands.onResults(onResults);
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 320, height: 240
+        });
+
+        initThree();
+        cameraUtils.start().then(() => {
+            const loader = document.getElementById('loading');
+            loader.style.opacity = 0;
+            setTimeout(() => {
+                loader.style.display = 'none';
+            }, 800);
+            previewCanvas.width = 160; 
+            previewCanvas.height = 120;
+        }).catch(err => {
+            console.error(err);
+            document.getElementById('loading').innerHTML = "<div>相機錯誤<br><small>請允許相機權限</small></div>";
+        });
+    </script>
+</body>
+</html>

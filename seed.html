@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ethereal Dandelion - 數位蒲公英</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #020205; /* 極深藍黑背景 */
+            font-family: 'Microsoft JhengHei', 'Heiti TC', sans-serif;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #ui-layer {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            pointer-events: none;
+        }
+
+        .visualizer-wrapper {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .visualizer-frame {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.05);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: border-color 0.1s, box-shadow 0.1s;
+        }
+
+        #progress-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 140px;
+            height: 140px;
+            z-index: 1;
+            transform: rotate(-90deg);
+        }
+
+        #audio-canvas {
+            width: 100%;
+            height: 100%;
+            opacity: 0.9;
+        }
+
+        .status-text {
+            font-size: 12px;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 5px;
+            text-align: right;
+            text-shadow: 0 0 5px rgba(0,0,0,0.8);
+            transition: color 0.3s;
+        }
+
+        #start-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: opacity 0.8s;
+        }
+
+        .start-btn {
+            border: 1px solid #64ffda;
+            padding: 15px 40px;
+            color: #64ffda;
+            font-size: 16px;
+            letter-spacing: 2px;
+            background: rgba(0, 50, 50, 0.3);
+            transition: all 0.3s;
+            border-radius: 30px;
+            box-shadow: 0 0 15px rgba(100, 255, 218, 0.2);
+        }
+        
+        .start-btn:hover {
+            background: rgba(100, 255, 218, 0.2);
+            box-shadow: 0 0 30px rgba(100, 255, 218, 0.6);
+            transform: scale(1.05);
+        }
+
+        .instruction {
+            position: absolute;
+            top: 40px;
+            left: 40px;
+            z-index: 5;
+            pointer-events: none;
+            mix-blend-mode: screen; 
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            margin: 0 0 10px 0;
+            font-weight: 300;
+            letter-spacing: 5px;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(165, 243, 252, 0.8);
+        }
+        
+        p {
+            font-size: 1rem;
+            color: rgba(200, 240, 255, 0.8);
+            letter-spacing: 1.5px;
+            max-width: 350px;
+            line-height: 1.8;
+            font-weight: 300;
+        }
+        
+        .hint {
+            margin-top: 20px;
+            font-size: 0.9rem;
+            color: #64ffda;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-left: 3px solid #64ffda;
+            padding-left: 15px;
+            background: linear-gradient(to right, rgba(100,255,218,0.1), transparent);
+        }
+
+    </style>
+    
+    <!-- Three.js Core -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- Post Processing Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+</head>
+<body>
+
+    <div id="start-overlay">
+        <div class="start-btn">點擊開始體驗</div>
+        <div style="margin-top:20px; font-size: 12px; color: #aaa; letter-spacing: 1px;">需要啟用麥克風權限</div>
+    </div>
+
+    <div class="instruction">
+        <h1>吹動螢幕上的蒲公英</h1>
+        <p>一場關於氣息與流動的數位試煉。</p>
+        <div class="hint">
+            <span>請持續吹氣<br>將心願傳遞至遠方...</span>
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <div class="visualizer-wrapper">
+            <canvas id="progress-canvas" width="140" height="140"></canvas>
+            <div class="visualizer-frame" id="visualizer-frame">
+                <canvas id="audio-canvas"></canvas>
+            </div>
+        </div>
+        <div class="status-text" id="status-text">系統待機中</div>
+        <div class="status-text" id="percent-text" style="color:#64ffda; font-size: 16px; font-weight: bold;">0% 已飛散</div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 場景設定 (Scene Setup)
+        // ==========================================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x020205, 0.008); 
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 0, 40);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ReinhardToneMapping;
+        renderer.toneMappingExposure = 1.8;
+        container.appendChild(renderer.domElement);
+
+        // 燈光
+        const ambientLight = new THREE.AmbientLight(0x222222);
+        scene.add(ambientLight);
+        
+        const moonLight = new THREE.PointLight(0xa5f3fc, 2.5, 80);
+        moonLight.position.set(15, 20, 20);
+        scene.add(moonLight);
+        
+        const rimLight = new THREE.PointLight(0xaa88ff, 2.0, 60);
+        rimLight.position.set(-15, -10, 10);
+        scene.add(rimLight);
+
+        // Bloom 光暈
+        const renderScene = new THREE.RenderPass(scene, camera);
+        const bloomPass = new THREE.UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight), 
+            1.5, 0.4, 0.85
+        );
+        bloomPass.threshold = 0.1; 
+        bloomPass.strength = 1.4;
+        bloomPass.radius = 0.6;
+
+        const composer = new THREE.EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        // ==========================================
+        // 2. 蒲公英系統 (Dandelion System)
+        // ==========================================
+        
+        const SEED_COUNT = 20;
+        const TARGET_BLOW_TIME = 3.0;
+        const seeds = [];
+        const dandelionGroup = new THREE.Group();
+        scene.add(dandelionGroup);
+
+        // --- 中心花托 (Receptacle) ---
+        const receptacleGeo = new THREE.SphereGeometry(1.2, 32, 32);
+        const receptacleMat = new THREE.MeshStandardMaterial({
+            color: 0xccffcc, 
+            roughness: 0.8,
+            emissive: 0x224422,
+            emissiveIntensity: 0.2
+        });
+        const receptacle = new THREE.Mesh(receptacleGeo, receptacleMat);
+        dandelionGroup.add(receptacle);
+
+        // --- 種子材質 ---
+        // 實體長莖 (Beak)
+        const stalkGeo = new THREE.CylinderGeometry(0.02, 0.04, 6.0, 4); 
+        stalkGeo.rotateX(Math.PI / 2); 
+        stalkGeo.translate(0, 0, 3.0); 
+
+        const stalkMat = new THREE.MeshBasicMaterial({
+            color: 0xddffee, 
+            transparent: true, 
+            opacity: 0.8
+        });
+        
+        const seedBaseGeo = new THREE.BoxGeometry(0.15, 0.15, 0.6);
+        seedBaseGeo.translate(0, 0, 0.3); 
+        const seedBaseMat = new THREE.MeshBasicMaterial({
+            color: 0x8B4513, 
+        });
+
+        // --- 核心修改：3D 線條式冠毛 (Pappus Geometry) ---
+        // 這不再是貼圖，而是真實的幾何線條，呈現「向上折」的傘狀
+        function createPappusGeometry() {
+            const points = [];
+            const radius = 3.2; // 冠毛半徑
+            const numHairs = 64; // 毛髮數量
+            const coneHeight = 1.5; // 向上折的高度 (形成漏斗/傘狀)
+
+            for (let i = 0; i < numHairs; i++) {
+                // 每個毛髮的起點都是中心
+                points.push(new THREE.Vector3(0, 0, 0));
+                
+                // 計算輻射角度
+                const angle = (i / numHairs) * Math.PI * 2;
+                
+                // 加入一點隨機長度與角度擾動，看起來更自然
+                const r = radius * (0.85 + Math.random() * 0.3);
+                const h = coneHeight * (0.9 + Math.random() * 0.2);
+                
+                // 終點：向外輻射 (X, Y) 且 向上延伸 (Z) -> 形成錐狀
+                const x = Math.cos(angle) * r;
+                const y = Math.sin(angle) * r;
+                const z = h; 
+
+                points.push(new THREE.Vector3(x, y, z));
+            }
+            
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            return geometry;
+        }
+
+        const pappusGeo = createPappusGeometry();
+        const pappusMat = new THREE.LineBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending
+        });
+
+        // 背景粒子
+        const pGeo = new THREE.BufferGeometry();
+        const pCount = 200;
+        const pPos = new Float32Array(pCount * 3);
+        for(let i=0; i<pCount*3; i++) pPos[i] = (Math.random()-0.5)*120;
+        pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+        const pMesh = new THREE.Points(pGeo, new THREE.PointsMaterial({
+            size: 0.3, color: 0x88ffff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending
+        }));
+        scene.add(pMesh);
+
+        class Seed {
+            constructor(id) {
+                this.id = id;
+                this.basePos = new THREE.Vector3();
+                this.pos = new THREE.Vector3();
+                this.velocity = new THREE.Vector3();
+                this.tumbleAxis = new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize();
+                this.tumbleSpeed = Math.random() * 0.03 + 0.01;
+                this.isFlying = false;
+                
+                const phi = Math.acos(1 - 2 * (id + 0.5) / SEED_COUNT);
+                const theta = Math.PI * (1 + Math.sqrt(5)) * (id + 0.5);
+                const radius = 1.2; 
+
+                this.basePos.setFromSphericalCoords(radius, phi, theta);
+                this.pos.copy(this.basePos);
+
+                const distFromCenterAxis = Math.sqrt(this.basePos.x * this.basePos.x + this.basePos.y * this.basePos.y);
+                const normalizedDist = distFromCenterAxis / radius; 
+                
+                const minThreshold = TARGET_BLOW_TIME * 0.16;
+                const variableRange = TARGET_BLOW_TIME * 0.84;
+                this.releaseThreshold = (1.0 - normalizedDist) * variableRange + minThreshold;
+                this.releaseThreshold += (Math.random() - 0.5) * 0.6;
+                
+                // 修正：確保閾值不會超過總吹氣時間，解決最後一顆吹不動的問題
+                if (this.releaseThreshold > TARGET_BLOW_TIME * 0.95) {
+                    this.releaseThreshold = TARGET_BLOW_TIME * 0.95;
+                }
+                
+                if (this.releaseThreshold < 0.5) this.releaseThreshold = 0.5;
+
+                this.flightSpeed = 0.3 + Math.random() * 0.3; 
+                this.turbulenceScale = 0.02 + Math.random() * 0.03;
+
+                this.group = new THREE.Group();
+                this.group.position.copy(this.basePos);
+                this.group.lookAt(new THREE.Vector3(0,0,0));
+
+                // 1. 種子根部
+                const seedBase = new THREE.Mesh(seedBaseGeo, seedBaseMat);
+                this.group.add(seedBase);
+
+                // 2. 實體長莖
+                const stalk = new THREE.Mesh(stalkGeo, stalkMat);
+                this.group.add(stalk);
+                
+                // 3. 3D 線條冠毛 (Pappus)
+                const head = new THREE.LineSegments(pappusGeo, pappusMat.clone());
+                head.position.set(0, 0, 6.0); 
+                // 不需要額外旋轉，因為 LineSegments 本身就有 3D 結構
+                // 稍微隨機旋轉一點 Z 軸讓每顆看起來不同
+                head.rotation.z = Math.random() * Math.PI * 2;
+                
+                this.headMesh = head;
+                this.group.add(head);
+
+                dandelionGroup.add(this.group);
+            }
+
+            update(accumulatedTime, currentWind, time) {
+                if (!this.isFlying) {
+                    if (currentWind > 0.1) {
+                        const shake = Math.sin(time * 25 + this.id) * 0.08 * currentWind;
+                        this.group.rotation.z += shake;
+                        this.group.rotation.x += Math.cos(time * 20) * 0.02 * currentWind;
+                    }
+
+                    if (accumulatedTime > this.releaseThreshold) {
+                        this.launch();
+                    }
+                } else {
+                    // 飛行
+                    const t = time * 0.6;
+                    const noiseX = Math.sin(t + this.id * 0.1) * Math.cos(t * 0.5 + this.pos.y * 0.1);
+                    const noiseY = Math.cos(t + this.id * 0.2) * Math.sin(t * 0.3 + this.pos.x * 0.1);
+                    const noiseZ = Math.sin(t * 0.8 + this.pos.z * 0.05);
+
+                    this.velocity.x += noiseX * this.turbulenceScale * 0.6;
+                    this.velocity.y += noiseY * this.turbulenceScale * 0.6;
+                    this.velocity.z += noiseZ * this.turbulenceScale * 0.6;
+
+                    this.velocity.y += 0.0025; 
+                    this.velocity.multiplyScalar(0.975); 
+
+                    this.pos.add(this.velocity);
+                    this.group.position.copy(this.pos);
+
+                    // 翻滾
+                    this.group.rotation.x += this.tumbleSpeed;
+                    this.group.rotation.y += this.tumbleSpeed * 0.5;
+
+                    // 飛行時，冠毛變亮一點
+                    if (this.headMesh.material.opacity < 0.9) {
+                        this.headMesh.material.opacity = 0.9;
+                    }
+                    
+                    if (this.pos.length() > 160) {
+                        this.group.visible = false;
+                    }
+                }
+            }
+
+            launch() {
+                this.isFlying = true;
+                let dir = this.basePos.clone().normalize();
+                const windDir = new THREE.Vector3((Math.random()-0.5)*5, (Math.random()+0.3)*2, (Math.random()-0.2)*2).normalize();
+                dir.lerp(windDir, 0.65).normalize();
+                
+                // 修正：大幅提升初始爆發速度 (0.45 -> 0.9)
+                this.velocity.copy(dir).multiplyScalar(0.9 + Math.random() * 0.6);
+            }
+            
+            reset() {
+                this.isFlying = false;
+                this.pos.copy(this.basePos);
+                this.group.position.copy(this.basePos);
+                this.group.rotation.set(0,0,0);
+                this.group.lookAt(new THREE.Vector3(0,0,0));
+                
+                this.headMesh.material.opacity = 0.6;
+                this.velocity.set(0,0,0);
+                this.group.visible = true;
+            }
+        }
+
+        for(let i=0; i<SEED_COUNT; i++) seeds.push(new Seed(i));
+
+        const stemCurve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, -25, 0),
+            new THREE.Vector3(1, -10, 1),
+            new THREE.Vector3(0, -1.5, 0)
+        ]);
+        const stemMesh = new THREE.Mesh(
+            new THREE.TubeGeometry(stemCurve, 20, 0.15, 8, false),
+            new THREE.MeshBasicMaterial({ color: 0x448866, transparent: true, opacity: 0.8 })
+        );
+        dandelionGroup.add(stemMesh);
+
+
+        // ==========================================
+        // 3. 音訊與互動邏輯
+        // ==========================================
+        
+        let audioContext, analyser, dataArray, timeDomainArray;
+        let isAudioInit = false;
+        let currentVol = 0;
+        let accumulatedBlowTime = 0;
+        let isNoise = false; 
+
+        const startOverlay = document.getElementById('start-overlay');
+        const visualizerFrame = document.getElementById('visualizer-frame');
+        const audioCanvas = document.getElementById('audio-canvas');
+        const progressCanvas = document.getElementById('progress-canvas');
+        const audioCtx = audioCanvas.getContext('2d');
+        const progressCtx = progressCanvas.getContext('2d');
+        const statusText = document.getElementById('status-text');
+        const percentText = document.getElementById('percent-text');
+
+        startOverlay.addEventListener('click', initAudio);
+
+        async function initAudio() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                const source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+                
+                analyser.fftSize = 2048; 
+                analyser.smoothingTimeConstant = 0.2; 
+                
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                timeDomainArray = new Uint8Array(analyser.fftSize);
+                
+                isAudioInit = true;
+                startOverlay.style.opacity = 0;
+                setTimeout(() => startOverlay.style.display = 'none', 800);
+                statusText.innerText = "聆聽中...";
+            } catch (err) {
+                console.error(err);
+                alert("請允許麥克風權限以進行體驗。");
+            }
+        }
+
+        function updateProgressUI(pct) {
+            progressCtx.clearRect(0, 0, 140, 140);
+            progressCtx.beginPath();
+            progressCtx.arc(70, 70, 60, 0, Math.PI * 2);
+            progressCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            progressCtx.lineWidth = 4;
+            progressCtx.stroke();
+
+            if (pct > 0) {
+                progressCtx.beginPath();
+                progressCtx.arc(70, 70, 60, 0, Math.PI * 2 * pct);
+                progressCtx.strokeStyle = '#64ffda';
+                progressCtx.lineWidth = 5;
+                progressCtx.lineCap = 'round';
+                progressCtx.shadowBlur = 15;
+                progressCtx.shadowColor = '#64ffda';
+                progressCtx.stroke();
+                progressCtx.shadowBlur = 0;
+            }
+            
+            percentText.innerText = Math.floor(pct * 100) + "% 已飛散";
+        }
+
+        function drawVisualizer() {
+            if (!isAudioInit) return;
+            
+            analyser.getByteFrequencyData(dataArray);
+            analyser.getByteTimeDomainData(timeDomainArray);
+
+            let zeroCrossings = 0;
+            for (let i = 1; i < timeDomainArray.length; i++) {
+                if ((timeDomainArray[i-1] < 128 && timeDomainArray[i] >= 128) || 
+                    (timeDomainArray[i-1] >= 128 && timeDomainArray[i] < 128)) {
+                    zeroCrossings++;
+                }
+            }
+            const zcrRatio = zeroCrossings / timeDomainArray.length;
+
+            let rumbleSum = 0;
+            for(let i=0; i<5; i++) rumbleSum += dataArray[i];
+            const rumbleAvg = rumbleSum / 5;
+
+            let totalSum = 0;
+            for(let i=0; i<dataArray.length; i++) totalSum += dataArray[i];
+            const totalVol = totalSum / dataArray.length;
+
+            // --- 靈敏度優化 ---
+            // 降低啟動門檻，讓遠距離吹氣也能偵測到
+            const VOLUME_THRESHOLD = 10; // 原本 20 -> 10，大幅提升靈敏度
+            const ZCR_THRESHOLD = 0.12; 
+
+            let isBlow = false;
+            let rejectReason = "";
+
+            if (totalVol > VOLUME_THRESHOLD) {
+                if (rumbleAvg > 150) { 
+                    isBlow = true;
+                    currentVol = Math.min((rumbleAvg - 100) / 100, 1.0);
+                } 
+                else if (zcrRatio > ZCR_THRESHOLD) {
+                    isBlow = true;
+                    // Auto-Gain: 如果音量小，自動放大，讓遠距離吹氣也能達到 100% 效果
+                    // 當音量僅有 20 時，就能產生 0.3 的風力，足夠吹動
+                    currentVol = Math.min((totalVol - VOLUME_THRESHOLD) / 30, 1.0); 
+                }
+                else {
+                    isBlow = false;
+                    rejectReason = "VOICE";
+                }
+            } else {
+                isBlow = false;
+                rejectReason = "SILENCE";
+            }
+
+            if (!isBlow) currentVol *= 0.8; 
+
+            audioCtx.clearRect(0, 0, audioCanvas.width, audioCanvas.height);
+            const cx = audioCanvas.width/2;
+            const cy = audioCanvas.height/2;
+            
+            if (!isBlow && rejectReason === "VOICE") {
+                isNoise = true;
+                
+                audioCtx.beginPath();
+                audioCtx.arc(cx, cy, 35, 0, Math.PI*2);
+                audioCtx.strokeStyle = 'rgba(255, 80, 80, 0.6)';
+                audioCtx.lineWidth = 2;
+                audioCtx.setLineDash([4, 6]); 
+                audioCtx.stroke();
+                audioCtx.setLineDash([]);
+                
+                audioCtx.fillStyle = 'rgba(255, 80, 80, 0.8)';
+                audioCtx.font = "10px Arial";
+                audioCtx.textAlign = "center";
+                audioCtx.fillText("人聲/樂音", cx, cy + 5);
+            } else {
+                isNoise = false;
+                audioCtx.beginPath();
+                audioCtx.arc(cx, cy, 10 + currentVol * 30, 0, Math.PI*2);
+                audioCtx.fillStyle = `rgba(100, 255, 218, ${0.3 + currentVol * 0.7})`;
+                audioCtx.shadowBlur = 20;
+                audioCtx.shadowColor = '#64ffda';
+                audioCtx.fill();
+                audioCtx.shadowBlur = 0;
+                
+                if (currentVol > 0.1) {
+                    audioCtx.beginPath();
+                    audioCtx.arc(cx, cy, 15 + currentVol * 35, 0, Math.PI*2);
+                    audioCtx.strokeStyle = `rgba(255, 255, 255, ${currentVol * 0.9})`;
+                    audioCtx.lineWidth = 2;
+                    audioCtx.stroke();
+                }
+            }
+        }
+
+        // ==========================================
+        // 4. 動畫迴圈
+        // ==========================================
+        
+        let time = 0;
+        let regenerateTimer = 0;
+        let isScattered = false;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.01;
+
+            if (isAudioInit) {
+                drawVisualizer();
+                
+                if (currentVol > 0.1 && !isNoise) {
+                    accumulatedBlowTime += 0.03 * (1 + currentVol);
+                    
+                    statusText.innerText = "偵測到吹氣！";
+                    statusText.style.color = "#64ffda";
+                    visualizerFrame.style.borderColor = "rgba(100, 255, 218, 0.9)";
+                    visualizerFrame.style.boxShadow = "0 0 30px rgba(100, 255, 218, 0.4)";
+                } else if (isNoise) {
+                    statusText.innerText = "偵測到說話聲";
+                    statusText.style.color = "#ff8888"; 
+                    visualizerFrame.style.borderColor = "rgba(255, 100, 100, 0.5)";
+                    visualizerFrame.style.boxShadow = "none";
+                } else {
+                    statusText.innerText = "請靠近麥克風吹氣";
+                    statusText.style.color = "rgba(255,255,255,0.5)";
+                    visualizerFrame.style.borderColor = "rgba(255, 255, 255, 0.15)";
+                    visualizerFrame.style.boxShadow = "0 0 20px rgba(0, 255, 255, 0.05)";
+                }
+                
+                if(accumulatedBlowTime > TARGET_BLOW_TIME) accumulatedBlowTime = TARGET_BLOW_TIME;
+            }
+
+            const progress = accumulatedBlowTime / TARGET_BLOW_TIME;
+            // updateProgressUI(progress); // 不再直接用時間，改用 flyingCount
+
+            if (progress < 0.9) {
+                dandelionGroup.rotation.y = Math.sin(time * 0.2) * 0.3;
+                dandelionGroup.rotation.z = Math.cos(time * 0.1) * 0.1;
+            }
+
+            let flyingCount = 0;
+            seeds.forEach(seed => {
+                seed.update(accumulatedBlowTime, currentVol, time);
+                if(seed.isFlying) flyingCount++;
+            });
+
+            // 進度與完成判定
+            const realProgress = flyingCount / SEED_COUNT;
+            updateProgressUI(realProgress);
+
+            if (flyingCount === SEED_COUNT) {
+                if (!isScattered) {
+                    isScattered = true;
+                    regenerateTimer = 0;
+                    statusText.innerText = "已將心願傳遞"; 
+                    statusText.style.color = "#64ffda";
+                }
+                
+                regenerateTimer++;
+                // 修改：將重置等待時間從 360 (約6秒) 改為 240 (約4秒)
+                if (regenerateTimer > 240) {
+                    resetSimulation();
+                }
+            }
+            
+            const pPos = pMesh.geometry.attributes.position.array;
+            for(let i=1; i<pPos.length; i+=3) {
+                pPos[i] += 0.03;
+                if(pPos[i] > 60) pPos[i] = -60;
+            }
+            pMesh.geometry.attributes.position.needsUpdate = true;
+
+            composer.render();
+        }
+
+        function resetSimulation() {
+            seeds.forEach(s => s.reset());
+            accumulatedBlowTime = 0;
+            isScattered = false;
+            dandelionGroup.rotation.set(0,0,0);
+            statusText.innerText = "請靠近麥克風吹氣";
+            
+            bloomPass.strength = 4.0;
+            const restoreBloom = setInterval(() => {
+                bloomPass.strength -= 0.1;
+                if(bloomPass.strength <= 1.8) clearInterval(restoreBloom);
+            }, 50);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+
+    </script>
+</body>
+</html>
